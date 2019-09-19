@@ -28,4 +28,5 @@ for ind in range(num_samples):
         a[x:x+28,y:y+28]+=dt[i,:,:].float()
     training.append(a)    
 
-t = torch.stack(trainin)
+t = torch.stack(training)
+torch.save(t,'./training')
