@@ -29,4 +29,4 @@ for ind in range(num_samples):
     training.append(a)    
 
 t = torch.stack(training)
-torch.save(t,'./training')
+torch.save(t,'./training.pt')
