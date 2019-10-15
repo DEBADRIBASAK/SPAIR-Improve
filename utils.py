@@ -36,9 +36,9 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     z_shift = z_where_shift.view(-1, 2)
     bbox = spatial_transform(z_pres * gbox + (1 - z_pres) * rbox,
                              torch.cat((z_scale, z_shift), dim=1),
-                             torch.Size([bs * num_obj, 3, img_h, img_w]),
+                             torch.Size([bs * num_obj, N_CHANNELS, img_h, img_w]),
                              inverse=True)
-    bbox = (bbox + torch.stack(num_obj * (x,), dim=1).view(-1, 3, img_h, img_w)).clamp(0.0, 1.0)
+    bbox = (bbox + torch.stack(num_obj * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w)).clamp(0.0, 1.0)
     return bbox
 
 def print_spair_clevr(global_step, epoch, local_count, count_inter,

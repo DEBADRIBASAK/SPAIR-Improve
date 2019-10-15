@@ -27,11 +27,10 @@ from tensorboardX import SummaryWriter
 
 from spair import Spair
 
-
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='SPAIR')
-    parser.add_argument('--data-dir', default='./create_atari', metavar='DIR',
+    parser.add_argument('--data-dir', default='./', metavar='DIR',
                         help='train.pt file')
     parser.add_argument('--nocuda', action='store_true', default=False,
                         help='disables CUDA training')
@@ -89,7 +88,7 @@ def main():
         "cuda" if not args.nocuda and torch.cuda.is_available() else "cpu")
     # torch.manual_seed(args.seed)
 
-    train_data = ATARI(root=args.data_dir, phase_train=True) # CLEVR
+    train_data = MNIST(root=args.data_dir, phase_train=True) # CLEVR
  
     train_loader = DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True)
@@ -98,7 +97,7 @@ def main():
 
     model = Spair(sigma=args.sigma)
     model.to(device)
-    if device.type == 'cuda' and torch.cuda.device_count() > 1:
+    if device.type == 'cuda' and torch.cuda.device_count() >= 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         model = nn.DataParallel(model)
     model.train()
@@ -126,8 +125,8 @@ def main():
             if epoch % args.save_epoch_freq == 0:
                 save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch,
                           local_count, args.batch_size, num_train)
-        for batch_idx, sample in enumerate(train_loader):
 
+        for batch_idx, sample in enumerate(train_loader):
             imgs = sample[0].to(device)
             target_count = sample[1]
 
@@ -179,8 +178,8 @@ def main():
                         log['z_where_std'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
                     'z_where_shift_mean':
                         log['z_where_mean'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
-                    'glimpse': log['x_att'].view(-1, 4 * 4, 3, glimpse_size, glimpse_size),
-                    'glimpse_recon': log['y_att'].view(-1, 4 * 4, 3, glimpse_size, glimpse_size),
+                    'glimpse': log['x_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
+                    'glimpse_recon': log['y_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
                     'prior_z_pres_prob': log['prior_z_pres_prob'].unsqueeze(0),
                     'o_each_cell': spatial_transform(log['o_att'], log['z_where'], (4 * 4 * bs, 3, img_h, img_w),
                                                      inverse=True).view(-1, 4 * 4, 3, img_h, img_w),
@@ -191,7 +190,7 @@ def main():
                                                          (4 * 4 * bs, 1, img_h, img_w),
                                                          inverse=True).view(-1, 4 * 4, 1, img_h, img_w),
                     'y_each_cell': (log['y_each_cell'] * log['z_pres'].
-                                    view(-1, 1, 1, 1)).view(-1, 4 * 4, 3, img_h, img_w),
+                                    view(-1, 1, 1, 1)).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'z_depth': log['z_depth'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_std': log['z_depth_std'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_mean': log['z_depth_mean'].view(-1, 4 * 4, z_depth_dim),
@@ -230,15 +229,15 @@ def main():
                         writer.add_histogram('inside_value/' + key, value.cpu().detach().numpy(),
                                              global_step)
 
-                grid_image = make_grid(imgs.cpu().detach()[:10].view(-1, 3, img_h, img_w),
+                grid_image = make_grid(imgs.cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/1-image', grid_image, global_step)
 
-                grid_image = make_grid(recon_x.cpu().detach()[:10].view(-1, 3, img_h, img_w).clamp(0., 1.),
+                grid_image = make_grid(recon_x.cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w).clamp(0., 1.),
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/2-reconstruction_overall', grid_image, global_step)
 
-                grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, 3, img_h, img_w),
+                grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/3-background', grid_image, global_step)
 
@@ -246,8 +245,8 @@ def main():
                                  log['z_where_scale'][:num_img_summary].cpu().detach(),
                                  log['z_where_shift'][:num_img_summary].cpu().detach())
 
-                y_each_cell = log['y_each_cell'].view(-1, 3, img_h, img_w)[:num_img_summary * 16].cpu().detach()
-                o_each_cell = log['o_each_cell'].view(-1, 3, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                y_each_cell = log['y_each_cell'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                o_each_cell = log['o_each_cell'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
                 alpha_each_cell = log['alpha_hat_each_cell'].view(-1, 1, img_h, img_w)[
                                   :num_img_summary * 16].cpu().detach()
                 importance_each_cell = \
@@ -287,5 +286,5 @@ def main():
                 last_count = local_count
 
 
-if __name__ == '__main__':
+if '__main__':
     main()

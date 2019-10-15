@@ -6,7 +6,6 @@ from utils import linear_annealing, spatial_transform, calc_kl_z_pres_bernoulli
 from module import NumericalRelaxedBernoulli
 from common import *
 
-
 class ImgEncoder(nn.Module):
 
     def __init__(self):
@@ -15,7 +14,7 @@ class ImgEncoder(nn.Module):
         # self.z_pres_bias = +2
 
         self.enc = nn.Sequential(
-            nn.Conv2d(3, 16, 4, 2, 1),
+            nn.Conv2d(N_CHANNELS, 16, 4, 2, 1),
             nn.CELU(),
             nn.GroupNorm(4, 16),
             nn.Conv2d(16, 32, 4, 2, 1),
@@ -111,7 +110,7 @@ class ZWhatEnc(nn.Module):
         super(ZWhatEnc, self).__init__()
 
         self.enc_cnn = nn.Sequential(
-            nn.Conv2d(3, 16, 3, 1, 1),
+            nn.Conv2d(N_CHANNELS, 16, 3, 1, 1),
             nn.CELU(),
             nn.GroupNorm(4, 16),
             nn.Conv2d(16, 16, 4, 2, 1),
@@ -279,7 +278,7 @@ class BgEncoder(nn.Module):
         super(BgEncoder, self).__init__()
 
         self.enc = nn.Sequential(
-            nn.Linear(img_h * img_w * 3, 256),
+            nn.Linear(img_h * img_w * N_CHANNELS, 256),
             nn.CELU(),
             nn.GroupNorm(16, 256),
             nn.Linear(256, 128),
@@ -363,7 +362,7 @@ class Spair(nn.Module):
         q_z_depth, z_pres_logits, z_pres_y = self.img_encoder(x, tau)
 
         # (4 * 4 * bs, 3, glimpse_size, glimpse_size)
-        x_att = spatial_transform(torch.stack(4 * 4 * (x,), dim=1).view(-1, 3, img_h, img_w), z_where,
+        x_att = spatial_transform(torch.stack(4 * 4 * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w), z_where,
                                   (4 * 4 * bs, 3, glimpse_size, glimpse_size), inverse=False)
 
         # (4 * 4 * bs, dim)
@@ -375,7 +374,7 @@ class Spair(nn.Module):
         y_att = alpha_att_hat * o_att
 
         # (4 * 4 * bs, 3, img_h, img_w)
-        y_each_cell = spatial_transform(y_att, z_where, (4 * 4 * bs, 3, img_h, img_w),
+        y_each_cell = spatial_transform(y_att, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
                                         inverse=True)
 
         # (4 * 4 * bs, 1, glimpse_size, glimpse_size)

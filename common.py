@@ -10,6 +10,8 @@ img_encode_dim = 128
 z_depth_dim = 1
 bg_what_dim = 10
 
+N_CHANNELS = 1
+
 
 scale_bias = 1.65 # for 25 x 25 in 128 x 128 image
 
