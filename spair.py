@@ -313,8 +313,8 @@ class Spair(nn.Module):
         self.img_encoder = ImgEncoder()
         self.z_what_net = ZWhatEnc()
         self.glimpse_dec = GlimpseDec()
-        self.bg_encoder = BgEncoder()
-        self.bg_decoder = BgDecoder()
+        #self.bg_encoder = BgEncoder()
+        #self.bg_decoder = BgDecoder()
 
         self.register_buffer('prior_what_mean', torch.zeros(1))
         self.register_buffer('prior_what_std', torch.ones(1))
@@ -352,9 +352,9 @@ class Spair(nn.Module):
                                                   self.z_pres_anneal_start_value, self.z_pres_anneal_end_value)
 
         # (bs, bg_what_dim)
-        bg_what, q_bg_what = self.bg_encoder(x)
+        #bg_what, q_bg_what = self.bg_encoder(x)
         # (bs, 3, img_h, img_w)
-        bg = self.bg_decoder(bg_what)
+        #bg = self.bg_decoder(bg_what)
 
         # z_where: (4*4*bs, 4)
         # z_pres, z_depth, z_pres_logits: (bs, dim, 4, 4)
@@ -388,18 +388,18 @@ class Spair(nn.Module):
                                        (importance_map_full_res.sum(dim=1, keepdim=True) + eps)
 
         # (bs, 4 * 4, 1, img_h, img_w)
-        alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, 1, img_h, img_w),
-                                      inverse=True).view(-1, 4 * 4, 1, img_h, img_w).sum(dim=1)
+       # alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, 1, img_h, img_w),
+                                      #inverse=True).view(-1, 4 * 4, 1, img_h, img_w).sum(dim=1)
         # (bs, 1, img_h, img_w)
-        alpha_map = alpha_map + (alpha_map.clamp(eps, 1 - eps) - alpha_map).detach()
+        #alpha_map = alpha_map + (alpha_map.clamp(eps, 1 - eps) - alpha_map).detach()
 
         # (bs, 3, img_h, img_w)
         y_nobg = (y_each_cell.view(-1, 4 * 4, 3, img_h, img_w) * importance_map_full_res_norm).sum(dim=1)
-        y = y_nobg + (1 - alpha_map) * bg
+        y = y_nobg# + (1 - alpha_map) * bg
 
         # (bs, bg_what_dim)
-        kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
-        kl_bg_what = kl_bg_what.view(bs, bg_what_dim)
+       # kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
+        #kl_bg_what = kl_bg_what.view(bs, bg_what_dim)
         # (4 * 4 * bs, z_what_dim)
         kl_z_what = kl_divergence(q_z_what, self.p_z_what) * z_pres.view(-1, 1)
         # (bs, 4 * 4, z_what_dim)
@@ -418,10 +418,10 @@ class Spair(nn.Module):
         log_like = p_x_given_z.log_prob(x.expand_as(y).flatten(start_dim=1))
 
         self.log = {
-            'bg_what': bg_what,
-            'bg_what_std': q_bg_what.stddev,
-            'bg_what_mean': q_bg_what.mean,
-            'bg': bg,
+            #'bg_what': bg_what,
+            #'bg_what_std': q_bg_what.stddev,
+            #'bg_what_mean': q_bg_what.mean,
+            #'bg': bg,
             'z_what': z_what,
             'z_where': z_where,
             'z_pres': z_pres,
@@ -449,4 +449,4 @@ class Spair(nn.Module):
                kl_z_where.flatten(start_dim=1).sum(dim=1), \
                kl_z_pres.flatten(start_dim=1).sum(dim=1), \
                kl_z_depth.flatten(start_dim=1).sum(dim=1), \
-               kl_bg_what.flatten(start_dim=1).sum(dim=1), self.log
+               self.log

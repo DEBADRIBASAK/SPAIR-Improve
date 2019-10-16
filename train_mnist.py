@@ -130,14 +130,14 @@ def main():
             imgs = sample[0].to(device)
             target_count = sample[1]
 
-            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what, log = \
+            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, log = \
                 model(imgs, global_step, tau)
 
-            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what = \
+            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth = \
                 log_like.mean(), kl_z_what.mean(), kl_z_where.mean(), \
-                kl_z_pres.mean(), kl_z_depth.mean(), kl_bg_what.mean()
+                kl_z_pres.mean(), kl_z_depth.mean()
 
-            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth - kl_bg_what)
+            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth)
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -157,10 +157,10 @@ def main():
                 bs = imgs.size(0)
 
                 log = {
-                    'bg_what': log['bg_what'].view(-1, bg_what_dim),
-                    'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
-                    'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
-                    'bg': log['bg'].view(-1, 3, img_h, img_w),
+                    #'bg_what': log['bg_what'].view(-1, bg_what_dim),
+                    #'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
+                    #'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
+                    #'bg': log['bg'].view(-1, 3, img_h, img_w),
                     'z_what': log['z_what'].view(-1, 4 * 4, z_what_dim),
                     'z_where_scale':
                         log['z_where'].view(-1, 4 * 4, z_where_scale_dim + z_where_shift_dim)[:, :, :z_where_scale_dim],
@@ -204,7 +204,7 @@ def main():
                 count_inter = local_count - last_count
                 print_spair_clevr(global_step, epoch, local_count, count_inter,
                                   num_train, total_loss, log_like, kl_z_what,
-                                  kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what, time_inter)
+                                  kl_z_where, kl_z_pres, kl_z_depth, time_inter)
                 end_time = time.time()
 
                 for name, param in model.named_parameters():
@@ -237,9 +237,9 @@ def main():
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/2-reconstruction_overall', grid_image, global_step)
 
-                grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
-                                       5, normalize=False, pad_value=1)
-                writer.add_image('train/3-background', grid_image, global_step)
+                # grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
+                #                        5, normalize=False, pad_value=1)
+                # writer.add_image('train/3-background', grid_image, global_step)
 
                 bbox = visualize(imgs[:num_img_summary].cpu(), log['z_pres'][:num_img_summary].cpu().detach(),
                                  log['z_where_scale'][:num_img_summary].cpu().detach(),
@@ -280,7 +280,7 @@ def main():
                                   global_step=global_step)
                 writer.add_scalar('train/count_more', calc_count_more_num(log['z_pres'].cpu().detach(), target_count),
                                   global_step=global_step)
-                writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
+                #writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
                 # writer.add_scalar('train/Bg_Beta', kg_kl_beta.item(), global_step=global_step)
 
                 last_count = local_count
