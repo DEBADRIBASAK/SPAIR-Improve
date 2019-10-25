@@ -1,4 +1,4 @@
-z_what_dim = 64
+z_what_dim = 128
 z_where_scale_dim = 2  # sx sy
 z_where_shift_dim = 2  # tx ty
 z_pres_dim = 1
