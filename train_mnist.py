@@ -128,7 +128,7 @@ def main():
                           local_count, args.batch_size, num_train)
 
         for batch_idx, sample in enumerate(train_loader):
-            imgs = sample[0]squeeze().to(device)
+            imgs = sample[0].squeeze().view(-1, 1, 128, 128).to(device)
             target_count = sample[1].squeeze()
 
             recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, log = \
@@ -277,10 +277,10 @@ def main():
                 writer.add_scalar('train/Pres_KL', kl_z_pres.item(), global_step=global_step)
                 writer.add_scalar('train/Depth_KL', kl_z_depth.item(), global_step=global_step)
                 writer.add_scalar('train/tau', tau, global_step=global_step)
-                cnt,acc = calc_count_acc(log['z_pres'].cpu().detach(), target_count)
-                writer.add_scalar('train/count', cnt,
-                                  global_step=global_step)
-                writer.add_scalar('train/target_count',target_count,global_step=global_step)
+                acc = calc_count_acc(log['z_pres'].cpu().detach(), target_count)
+                #writer.add_scalar('train/count', target_count,
+                #                  global_step=global_step)
+                #writer.add_scalar('train/target_count',target_count,global_step=global_step)
                 writer.add_scalar('train/count_acc', acc,
                                   global_step=global_step)
                 writer.add_scalar('train/count_more', calc_count_more_num(log['z_pres'].cpu().detach(), target_count),
