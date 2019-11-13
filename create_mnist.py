@@ -28,18 +28,18 @@ if(not os.path.isfile(args.pickle_path)):
 
 	for ind in range(num_samples):
 	    num_digits = 5 #np.random.randint(11)
-	    indices = np.random.randint(60000,size=(num_digits))
-	    a = torch.zeros(128,128)
+	    indices = np.random.randint(60000, size=(num_digits))
+	    a = torch.zeros(3, 128, 128)
 	    for i in indices:
 	        x = np.random.randint(70)
 	        y = np.random.randint(70)
-	        a[x:x+28,y:y+28] += dt[i,:,:].float()
+	        a[:, x:x+28, y:y+28] += dt[i,:,:].float()
 
 	    training.append(a)
 	    num.append(torch.tensor([num_digits]))
 
-	training = torch.stack(training, dim=0).squeeze().view(-1, 1, 128, 128)
-	num = torch.stack(num,dim=0).squeeze().view(-1,1,1,1);
+	training = torch.stack(training, dim=0).squeeze().view(-1, 3, 128, 128)
+	num = torch.stack(num, dim=0).squeeze().view(-1, 1, 1, 1)
 	ds = torch.utils.data.TensorDataset(training, num)
 	#training = torch.stack([training.float(),num.float()],dim=1)
 	torch.save(ds, args.pickle_path)
