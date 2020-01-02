@@ -19,6 +19,13 @@ gbox[1, :, :2] = 1
 gbox[1, :, -2:] = 1
 gbox = gbox.view(1, 3, 21, 21)
 
+wbox = torch.zeros(1, 21, 21)
+wbox[0, :2, :] = 1
+wbox[0, -2:, :] = 1
+wbox[0, :, :2] = 1
+wbox[0, :, -2:] = 1
+wbox = wbox.view(1, 1, 21, 21)
+
 
 def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     """
@@ -34,22 +41,21 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     # z_shift = z_where[:, :, 2:].view(-1, 2)
     z_scale = z_where_scale.view(-1, 2)
     z_shift = z_where_shift.view(-1, 2)
-    bbox = spatial_transform(z_pres * gbox + (1 - z_pres) * rbox,
+    bbox = spatial_transform(z_pres * wbox + (1 - z_pres) * wbox,
                              torch.cat((z_scale, z_shift), dim=1),
-                             torch.Size([bs * num_obj, 3, img_h, img_w]),
+                             torch.Size([bs * num_obj, N_CHANNELS, img_h, img_w]),
                              inverse=True)
-    bbox = (bbox + torch.stack(num_obj * (x,), dim=1).view(-1, 3, img_h, img_w)).clamp(0.0, 1.0)
+    bbox = (bbox + torch.stack(num_obj * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w)).clamp(0.0, 1.0)
     return bbox
 
 def print_spair_clevr(global_step, epoch, local_count, count_inter,
                       num_train, total_loss, log_like, z_what_kl_loss, z_where_kl_loss,
-                      z_pres_kl_loss, z_depth_kl_loss, kl_bg_what_loss, time_inter):
+                      z_pres_kl_loss, z_depth_kl_loss, time_inter):
     print('Step: {:>5} Train Epoch: {:>3} [{:>4}/{:>4} '.format(global_step, epoch, local_count, num_train),
           '({:3.1f}%)]    '.format(100. * local_count / num_train),
           'total_loss: {:.4f} log_like: {:.4f} '.format(total_loss.item(), log_like.item()),
           'What KL: {:.4f} Where KL: {:.4f} '.format(z_what_kl_loss.item(), z_where_kl_loss.item()),
-          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()),
-          'Bg KL: {:.4f} [{:.1f}s / {:>4} data]'.format(kl_bg_what_loss.item(), time_inter, count_inter))
+          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()), time_inter, count_inter)
 
 
 def save_ckpt(ckpt_dir, model, optimizer, global_step, epoch, local_count,

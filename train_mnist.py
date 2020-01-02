@@ -13,7 +13,7 @@ import torchvision.transforms as transforms
 from torchvision.utils import make_grid
 from torch import nn
 from torchvision import datasets
-from create_atari.data_atari import ATARI
+#from create_atari.data_atari import ATARI
 from torch.optim.lr_scheduler import LambdaLR
 #from data import MultiDSprites, CLEVR
 from utils import save_ckpt, load_ckpt, linear_annealing, visualize, \
@@ -129,17 +129,17 @@ def main():
                           local_count, args.batch_size, num_train)
         for batch_idx, sample in enumerate(train_loader):
 
-            imgs = sample[0].squeeze().view(-1, 3, 128, 128).to(device)
+            imgs = sample[0].squeeze().view(-1, N_CHANNELS, 128, 128).to(device)
             target_count = sample[1].squeeze()
 
-            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what, log = \
+            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, log = \
                 model(imgs, global_step, tau)
 
-            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what = \
+            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth = \
                 log_like.mean(), kl_z_what.mean(), kl_z_where.mean(), \
-                kl_z_pres.mean(), kl_z_depth.mean(), kl_bg_what.mean()
+                kl_z_pres.mean(), kl_z_depth.mean()#, kl_bg_what.mean()
 
-            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth - kl_bg_what)
+            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth)# - kl_bg_what)
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -159,10 +159,10 @@ def main():
                 bs = imgs.size(0)
 
                 log = {
-                    'bg_what': log['bg_what'].view(-1, bg_what_dim),
-                    'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
-                    'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
-                    'bg': log['bg'].view(-1, 3, img_h, img_w),
+#                    'bg_what': log['bg_what'].view(-1, bg_what_dim),
+#                    'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
+#                    'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
+#                    'bg': log['bg'].view(-1, 3, img_h, img_w),
                     'z_what': log['z_what'].view(-1, 4 * 4, z_what_dim),
                     'z_where_scale':
                         log['z_where'].view(-1, 4 * 4, z_where_scale_dim + z_where_shift_dim)[:, :, :z_where_scale_dim],
@@ -180,24 +180,24 @@ def main():
                         log['z_where_std'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
                     'z_where_shift_mean':
                         log['z_where_mean'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
-                    'glimpse': log['x_att'].view(-1, 4 * 4, 3, glimpse_size, glimpse_size),
-                    'glimpse_recon': log['y_att'].view(-1, 4 * 4, 3, glimpse_size, glimpse_size),
+                    'glimpse': log['x_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
+                    'glimpse_recon': log['y_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
                     'prior_z_pres_prob': log['prior_z_pres_prob'].unsqueeze(0),
-                    'o_each_cell': spatial_transform(log['o_att'], log['z_where'], (4 * 4 * bs, 3, img_h, img_w),
-                                                     inverse=True).view(-1, 4 * 4, 3, img_h, img_w),
+                    'o_each_cell': spatial_transform(log['o_att'], log['z_where'], (4 * 4 * bs, N_CHANNELS, img_h, img_w),
+                                                     inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'alpha_hat_each_cell': spatial_transform(log['alpha_att_hat'], log['z_where'],
-                                                             (4 * 4 * bs, 1, img_h, img_w),
-                                                             inverse=True).view(-1, 4 * 4, 1, img_h, img_w),
+                                                             (4 * 4 * bs, N_CHANNELS, img_h, img_w),
+                                                             inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'alpha_each_cell': spatial_transform(log['alpha_att'], log['z_where'],
-                                                         (4 * 4 * bs, 1, img_h, img_w),
-                                                         inverse=True).view(-1, 4 * 4, 1, img_h, img_w),
+                                                         (4 * 4 * bs, N_CHANNELS, img_h, img_w),
+                                                         inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'y_each_cell': (log['y_each_cell'] * log['z_pres'].
-                                    view(-1, 1, 1, 1)).view(-1, 4 * 4, 3, img_h, img_w),
+                                    view(-1, 1, 1, 1)).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'z_depth': log['z_depth'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_std': log['z_depth_std'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_mean': log['z_depth_mean'].view(-1, 4 * 4, z_depth_dim),
                     'importance_map_full_res_norm':
-                        log['importance_map_full_res_norm'].view(-1, 4 * 4, 1, img_h, img_w),
+                        log['importance_map_full_res_norm'].view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'z_pres_logits': log['z_pres_logits'].permute(0, 2, 3, 1),
                     'z_pres_y': log['z_pres_y'].permute(0, 2, 3, 1),
                 }
@@ -206,15 +206,16 @@ def main():
                 count_inter = local_count - last_count
                 print_spair_clevr(global_step, epoch, local_count, count_inter,
                                   num_train, total_loss, log_like, kl_z_what,
-                                  kl_z_where, kl_z_pres, kl_z_depth, kl_bg_what, time_inter)
+                                  kl_z_where, kl_z_pres, kl_z_depth, time_inter)
                 end_time = time.time()
 
                 for name, param in model.named_parameters():
                     writer.add_histogram(
                         name, param.cpu().detach().numpy(), global_step)
                     if param.grad is not None:
-                        writer.add_histogram(
-                            'grad/' + name, param.grad.cpu().detach(), global_step)
+                        pass
+                        #writer.add_histogram(
+                        #    'grad/' + name, param.grad.cpu().detach(), global_step)
                         # writer.add_scalar(
                         #     'grad_std/' + name + '.grad', param.grad.cpu().detach().std().item(), global_step)
                         # writer.add_scalar(
@@ -231,28 +232,28 @@ def main():
                         writer.add_histogram('inside_value/' + key, value.cpu().detach().numpy(),
                                              global_step)
 
-                grid_image = make_grid(imgs.cpu().detach()[:10].view(-1, 3, img_h, img_w),
+                grid_image = make_grid(imgs.cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/1-image', grid_image, global_step)
 
-                grid_image = make_grid(recon_x.cpu().detach()[:10].view(-1, 3, img_h, img_w).clamp(0., 1.),
+                grid_image = make_grid(recon_x.cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w).clamp(0., 1.),
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/2-reconstruction_overall', grid_image, global_step)
 
-                grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, 3, img_h, img_w),
-                                       5, normalize=False, pad_value=1)
-                writer.add_image('train/3-background', grid_image, global_step)
+                #grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
+                 #                      5, normalize=False, pad_value=1)
+                #writer.add_image('train/3-background', grid_image, global_step)
 
                 bbox = visualize(imgs[:num_img_summary].cpu(), log['z_pres'][:num_img_summary].cpu().detach(),
                                  log['z_where_scale'][:num_img_summary].cpu().detach(),
                                  log['z_where_shift'][:num_img_summary].cpu().detach())
 
-                y_each_cell = log['y_each_cell'].view(-1, 3, img_h, img_w)[:num_img_summary * 16].cpu().detach()
-                o_each_cell = log['o_each_cell'].view(-1, 3, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                y_each_cell = log['y_each_cell'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                o_each_cell = log['o_each_cell'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
                 alpha_each_cell = log['alpha_hat_each_cell'].view(-1, 1, img_h, img_w)[
                                   :num_img_summary * 16].cpu().detach()
                 importance_each_cell = \
-                    log['importance_map_full_res_norm'].view(-1, 1, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                    log['importance_map_full_res_norm'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
 
                 for i in range(num_img_summary):
                     grid_image = make_grid(bbox[i * 16:(i + 1) * 16], 4, normalize=True, pad_value=1)
@@ -282,7 +283,7 @@ def main():
                                   global_step=global_step)
                 writer.add_scalar('train/count_more', calc_count_more_num(log['z_pres'].cpu().detach(), target_count),
                                   global_step=global_step)
-                writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
+ #               writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
                 # writer.add_scalar('train/Bg_Beta', kg_kl_beta.item(), global_step=global_step)
 
                 last_count = local_count

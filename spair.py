@@ -15,7 +15,7 @@ class ImgEncoder(nn.Module):
         # self.z_pres_bias = +2
 
         self.enc = nn.Sequential(
-            nn.Conv2d(3, 16, 4, 2, 1),
+            nn.Conv2d(N_CHANNELS, 16, 4, 2, 1),
             nn.CELU(),
             nn.GroupNorm(4, 16),
             nn.Conv2d(16, 32, 4, 2, 1),
@@ -111,7 +111,7 @@ class ZWhatEnc(nn.Module):
         super(ZWhatEnc, self).__init__()
 
         self.enc_cnn = nn.Sequential(
-            nn.Conv2d(3, 16, 3, 1, 1),
+            nn.Conv2d(N_CHANNELS, 16, 3, 1, 1),
             nn.CELU(),
             nn.GroupNorm(4, 16),
             nn.Conv2d(16, 16, 4, 2, 1),
@@ -207,7 +207,7 @@ class GlimpseDec(nn.Module):
         )
 
 
-        self.dec_o = nn.Conv2d(16, 3, 3, 1, 1)
+        self.dec_o = nn.Conv2d(16, N_CHANNELS, 3, 1, 1)
 
         self.dec_alpha = nn.Conv2d(16, 1, 3, 1, 1)
 
@@ -353,9 +353,9 @@ class Spair(nn.Module):
                                                   self.z_pres_anneal_start_value, self.z_pres_anneal_end_value)
 
         # (bs, bg_what_dim)
-        bg_what, q_bg_what = self.bg_encoder(x)
+        #bg_what, q_bg_what = self.bg_encoder(x)
         # (bs, 3, img_h, img_w)
-        bg = self.bg_decoder(bg_what)
+        #bg = self.bg_decoder(bg_what)
 
         # z_where: (4*4*bs, 4)
         # z_pres, z_depth, z_pres_logits: (bs, dim, 4, 4)
@@ -363,8 +363,8 @@ class Spair(nn.Module):
         q_z_depth, z_pres_logits, z_pres_y = self.img_encoder(x, tau)
 
         # (4 * 4 * bs, 3, glimpse_size, glimpse_size)
-        x_att = spatial_transform(torch.stack(4 * 4 * (x,), dim=1).view(-1, 3, img_h, img_w), z_where,
-                                  (4 * 4 * bs, 3, glimpse_size, glimpse_size), inverse=False)
+        x_att = spatial_transform(torch.stack(4 * 4 * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w), z_where,
+                                  (4 * 4 * bs, N_CHANNELS, glimpse_size, glimpse_size), inverse=False)
 
         # (4 * 4 * bs, dim)
         z_what, q_z_what = self.z_what_net(x_att)
@@ -375,32 +375,32 @@ class Spair(nn.Module):
         y_att = alpha_att_hat * o_att
 
         # (4 * 4 * bs, 3, img_h, img_w)
-        y_each_cell = spatial_transform(y_att, z_where, (4 * 4 * bs, 3, img_h, img_w),
+        y_each_cell = spatial_transform(y_att, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
                                         inverse=True)
 
         # (4 * 4 * bs, 1, glimpse_size, glimpse_size)
         importance_map = alpha_att_hat * 4.4 * torch.sigmoid(-z_depth).view(-1, 1, 1, 1)
         # (4 * 4 * bs, 1, img_h, img_w)
-        importance_map_full_res = spatial_transform(importance_map, z_where, (4 * 4 * bs, 1, img_h, img_w),
+        importance_map_full_res = spatial_transform(importance_map, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
                                                     inverse=True)
         # # (bs, 4 * 4, 1, img_h, img_w)
-        importance_map_full_res = importance_map_full_res.view(-1, 4 * 4, 1, img_h, img_w)
+        importance_map_full_res = importance_map_full_res.view(-1, 4 * 4, N_CHANNELS, img_h, img_w)
         importance_map_full_res_norm = importance_map_full_res / \
                                        (importance_map_full_res.sum(dim=1, keepdim=True) + eps)
 
         # (bs, 4 * 4, 1, img_h, img_w)
-        alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, 1, img_h, img_w),
-                                      inverse=True).view(-1, 4 * 4, 1, img_h, img_w).sum(dim=1)
+        alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
+                                      inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w).sum(dim=1)
         # (bs, 1, img_h, img_w)
         alpha_map = alpha_map + (alpha_map.clamp(eps, 1 - eps) - alpha_map).detach()
 
         # (bs, 3, img_h, img_w)
-        y_nobg = (y_each_cell.view(-1, 4 * 4, 3, img_h, img_w) * importance_map_full_res_norm).sum(dim=1)
-        y = y_nobg + (1 - alpha_map) * bg
+        y_nobg = (y_each_cell.view(-1, 4 * 4, N_CHANNELS, img_h, img_w) * importance_map_full_res_norm).sum(dim=1)
+        y = y_nobg # + (1 - alpha_map) * bg
 
         # (bs, bg_what_dim)
-        kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
-        kl_bg_what = kl_bg_what.view(bs, bg_what_dim)
+        #kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
+        #kl_bg_what = kl_bg_what.view(bs, bg_what_dim)
         # (4 * 4 * bs, z_what_dim)
         kl_z_what = kl_divergence(q_z_what, self.p_z_what) * z_pres.view(-1, 1)
         # (bs, 4 * 4, z_what_dim)
@@ -416,13 +416,13 @@ class Spair(nn.Module):
             if torch.any(torch.isnan(kl_z_pres)):
                 breakpoint()
         p_x_given_z = Normal(y.flatten(start_dim=1), self.likelihood_sigma)
-        log_like = p_x_given_z.log_prob(x.expand_as(y).flatten(start_dim=1))
+        log_like = p_x_given_z.log_prob((x.float()/255.0).expand_as(y).flatten(start_dim=1))
 
         self.log = {
-            'bg_what': bg_what,
-            'bg_what_std': q_bg_what.stddev,
-            'bg_what_mean': q_bg_what.mean,
-            'bg': bg,
+           # 'bg_what': bg_what,
+           # 'bg_what_std': q_bg_what.stddev,
+           # 'bg_what_mean': q_bg_what.mean,
+           # 'bg': bg,
             'z_what': z_what,
             'z_where': z_where,
             'z_pres': z_pres,
@@ -450,4 +450,5 @@ class Spair(nn.Module):
                kl_z_where.flatten(start_dim=1).sum(dim=1), \
                kl_z_pres.flatten(start_dim=1).sum(dim=1), \
                kl_z_depth.flatten(start_dim=1).sum(dim=1), \
-               kl_bg_what.flatten(start_dim=1).sum(dim=1), self.log
+	       self.log
+               #kl_bg_what.flatten(start_dim=1).sum(dim=1), self.log
