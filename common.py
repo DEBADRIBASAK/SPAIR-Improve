@@ -11,7 +11,9 @@ z_depth_dim = 1
 bg_what_dim = 10
 
 N_CHANNELS = 1
-
+N_OBJECTS = 10
+N_OCCURRENCES = 2
+N_TOTAL = N_OBJECTS*N_OCCURRENCES
 
 scale_bias = 1.65 # for 25 x 25 in 128 x 128 image
 
