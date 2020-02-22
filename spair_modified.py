@@ -1,4 +1,5 @@
 import torch
+import sys
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence, RelaxedBernoulli
@@ -52,11 +53,20 @@ class ImgEncoder(nn.Module):
             nn.GroupNorm(8, 64)
         )
 
-        self.z_where_net = nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim) * 2*N_TOTAL, 4)
+        #self.z_where_net = nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim) * 2*N_TOTAL, 4)
 
-        self.z_pres_net = nn.Conv2d(64, z_pres_dim*N_TOTAL, 4)
+        #self.z_pres_net = nn.Conv2d(64, z_pres_dim*N_TOTAL, 4)
 
-        self.z_depth_net = nn.Conv2d(64, z_depth_dim * 2*N_TOTAL, 4)
+        #self.z_depth_net = nn.Conv2d(64, z_depth_dim * 2*N_TOTAL, 4)
+        self.z_where_net = nn.Sequential(nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim)*2, 4,2,1) \
+            ,nn.Conv2d((z_where_shift_dim + z_where_scale_dim)*2, (z_where_shift_dim + z_where_scale_dim)*2*N_TOTAL, 4,2,1))
+
+        self.z_pres_net = nn.Sequential(nn.Conv2d(64, z_pres_dim, 4,2,1) \
+            ,nn.Conv2d(z_pres_dim, z_pres_dim*N_TOTAL, 4,2,1))
+
+
+        self.z_depth_net = nn.Sequential(nn.Conv2d(64, z_depth_dim*2, 4,2,1) \
+            ,nn.Conv2d(z_depth_dim*2, z_depth_dim*2*N_TOTAL, 4,2,1))
 
         offset_y, offset_x = torch.meshgrid([torch.arange(4.), torch.arange(4.)])
 
@@ -81,14 +91,20 @@ class ImgEncoder(nn.Module):
         z_pres = torch.sigmoid(z_pres_y)
 
         # (bs,2*z_depth,N_OBJECTS,N_OCCURRENCES)
-        z_depth_mean, z_depth_std = self.z_depth_net(cat_enc).view(-1,2*z_depth_dim,N_OBJECTS,N_OCCURRENCES).chunk(2, 1)
+        z_depth_mean, z_depth_std = self.z_depth_net(cat_enc).view(-1,N_OCCURRENCES,N_OBJECTS,2*z_depth_dim).permute(0,3,2,1).chunk(2, 1)
+        """if(torch.any(torch.isnan(z_depth_mean))):
+            print("Z_depth mean is nan")
+        if(torch.any(torch.isnan(z_depth_std))):
+            print("z_depth standard is nan")
         z_depth_std = F.softplus(z_depth_std)
+        if(torch.any(torch.isnan(z_depth_std))):
+            print("z_depth standard is nan after activation")"""
         q_z_depth = Normal(z_depth_mean, z_depth_std)
 
         z_depth = q_z_depth.rsample()
 
         # (bs, 4 + 4, 4, 4)
-        z_where_mean, z_where_std = self.z_where_net(cat_enc).view(-1,2*(z_where_shift_dim + z_where_scale_dim),N_OBJECTS,N_OCCURRENCES).chunk(2, 1)
+        z_where_mean, z_where_std = self.z_where_net(cat_enc).view(-1,N_OCCURRENCES,N_OBJECTS,2*(z_where_shift_dim + z_where_scale_dim)).permute(0,3,2,1).chunk(2, 1)
         z_where_std = F.softplus(z_where_std)
 
         q_z_where = Normal(z_where_mean, z_where_std)
@@ -96,9 +112,9 @@ class ImgEncoder(nn.Module):
         z_where = q_z_where.rsample()
         # make it global
         z_where[:, :2] = (-(scale_bias + z_where[:, :2].tanh())).exp()
-        #z_where[:, 2:] = 0.5 * (self.offset + 0.5 + z_where[:, 2:].tanh()) - 1
+        z_where[:, 2:] = z_where[:,2:].sigmoid()#0.5 * (0.5 + z_where[:, 2:].tanh()) - 1
 
-        z_where = z_where.permute(0, 2, 3, 1).reshape(-1, 4)
+        z_where = z_where.reshape(-1, 4)
 
         return z_where, z_pres, z_depth, q_z_where, \
                q_z_depth, z_pres_logits, z_pres_y
@@ -113,7 +129,7 @@ class ZWhatEnc(nn.Module):
         self.class_vector = torch.zeros((N_TOTAL,N_OBJECTS))
         for i in range(N_OBJECTS):
             for j in range(i*N_OCCURRENCES,(i+1)*N_OCCURRENCES,1):
-                self.class_vector[j,i] = 1
+                self.class_vector[j,i] = 1.
 
         #self.class_vector = self.class_vector.repeat()
 
@@ -146,7 +162,7 @@ class ZWhatEnc(nn.Module):
 
         self.enc_what = nn.Linear(128, z_what_dim * 2)
 
-        self.enc_classify = nn.Linear(z_what_dim,N_OBJECTS)
+        #self.enc_classify = nn.Linear(z_what_dim,N_OBJECTS)
 
         # self.enc_depth = nn.Linear(128, z_depth_dim * 2)
 
@@ -163,13 +179,16 @@ class ZWhatEnc(nn.Module):
         z_what = q_z_what.rsample()
         #print("z_what shape = ",z_what.shape)
 
-        z_classification = F.softmax(self.enc_classify(z_what.view(-1,z_what_dim)),dim=1)
+        #z_classification = self.enc_classify(z_what.view(-1,z_what_dim))
+        #if torch.any(torch.isnan(z_classification)):
+            #print("It is Nan!")
+            #sys.exit(-1)
         #print("class vector shape = ",torch.stack((self.class_vector,)*(x.size(0)),dim=0).flatten(0,1).shape)
         #print("z classify shape = ",z_classification.shape)
-        classification_loss = F.binary_cross_entropy(z_classification,\
-            torch.stack((self.class_vector,)*(int(x.size(0)/N_TOTAL)),dim=0).flatten(0,1).to(z_classification.device),reduction='none')
+        #classification_loss = F.binary_cross_entropy_with_logits(z_classification,\
+         #   torch.stack((self.class_vector,)*(int(x.size(0)/N_TOTAL)),dim=0).flatten(0,1).to(z_classification.device),reduction='none')
 
-        return z_what, q_z_what,classification_loss
+        return z_what, q_z_what#,classification_loss
 
 
 class GlimpseDec(nn.Module):
@@ -231,7 +250,7 @@ class GlimpseDec(nn.Module):
         self.dec_alpha = nn.Conv2d(16, 1, 3, 1, 1)
 
     def forward(self, x):
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
         x = self.dec(x.view(-1, z_what_dim, 1, 1))
 
         o = torch.sigmoid(self.dec_o(x))
@@ -382,23 +401,30 @@ class Spair(nn.Module):
         # z_pres, z_depth, z_pres_logits: (bs, dim, 4, 4)
         z_where, z_pres, z_depth, q_z_where, \
         q_z_depth, z_pres_logits, z_pres_y = self.img_encoder(x, tau)
+        """if torch.any(torch.isnan(z_where)):
+            print("z_where is nan global step = ",global_step,flush=True)
+        if torch.any(torch.isnan(z_pres)):
+            print("z pres is nan global step = ",global_step,flush=True)
+        if torch.any(torch.isnan(z_depth)):
+            print(" z depth is nan global step = ",global_step,flush=True)"""
 
         # (4 * 4 * bs, 3, glimpse_size, glimpse_size)
         x_att = spatial_transform(torch.stack(N_TOTAL * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w), z_where,
                                    (N_TOTAL * bs, N_CHANNELS, glimpse_size, glimpse_size), inverse=False)
-
+        #if torch.any(torch.isnan(x_att)):
+        #    print("x att is nan global step = ",global_step,flush=True)
         # # (4 * 4 * bs, dim)
         # z_what, q_z_what = self.z_what_net(x_att)
 
         # (bs,N_OBJECTS,dim)
-        z_what,q_z_what,classification_loss = self.z_what_net(x_att)
+        z_what,q_z_what = self.z_what_net(x_att)
         #print("z what shape = ",z_what.shape)
         #print("z_pres shape = ",z_pres.shape)
-        classification_loss = classification_loss * z_pres.view(-1, 1, 1, 1)
+        #classification_loss = classification_loss * z_pres.view(-1, 1, 1, 1)
        # classification_loss = torch.sum(classification) # some doubt is there!!!!!
 
         # (bs*N_OBJECTS,N_CHANNELS,glimpse_size,glimpse_size)
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
         o_att, alpha_att = self.glimpse_dec(z_what)
         alpha_att_hat = alpha_att * z_pres.view(-1, 1, 1, 1)
         y_att = alpha_att_hat * o_att
@@ -478,6 +504,5 @@ class Spair(nn.Module):
                kl_z_where.flatten(start_dim=1).sum(dim=1), \
                kl_z_pres.flatten(start_dim=1).sum(dim=1), \
                kl_z_depth.flatten(start_dim=1).sum(dim=1), \
-               classification_loss, \
                self.log
 

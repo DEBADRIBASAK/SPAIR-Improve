@@ -5,7 +5,7 @@ import time
 import torch
 import math
 import numpy as np
-
+import pdb
 from torch.utils.data import DataLoader
 import torch.optim
 from torch.nn.utils import clip_grad_norm_
@@ -103,9 +103,9 @@ def main():
         model = nn.DataParallel(model)
     model.train()
 
-    optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
+    #optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
 
-    #optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     if args.last_ckpt:
         global_step, args.start_epoch = \
@@ -116,7 +116,7 @@ def main():
     global_step = 0
 
     log_tau_gamma = math.log(args.tau_end) / args.tau_ep
-
+    #writer.add_graph(model,
     for epoch in range(int(args.start_epoch), args.epochs):
         local_count = 0
         last_count = 0
@@ -126,37 +126,59 @@ def main():
             if epoch % args.save_epoch_freq == 0:
                 save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch,
                           local_count, args.batch_size, num_train)
-
+        flg = True
         for batch_idx, sample in enumerate(train_loader):
             imgs = sample[0].squeeze().view(-1, 1, 128, 128).to(device)
+            if torch.any(torch.isnan(imgs)):
+                print("image is nan")
             target_count = sample[1].squeeze()
-
-            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth,classification_loss,log = \
+            """if True:
+                for name, param in model.named_parameters():
+                    if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
+                        #pdb.set_trace()
+                        print("Weight is Nan here",flush=True)
+                        flg = False
+                        break"""
+            recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth,log = \
                 model(imgs, global_step, tau)
 
-            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth,classification_loss = \
+            log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth = \
                 log_like.mean(), kl_z_what.mean(), kl_z_where.mean(), \
-                kl_z_pres.mean(), kl_z_depth.mean(),classification_loss.mean()
+                kl_z_pres.mean(), kl_z_depth.mean()#""",classification_loss.mean()"""
 
-            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth - classification_loss)
+            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth)# - classification_loss)
 
             optimizer.zero_grad()
             total_loss.backward()
-
-            if DEBUG:
+            if(batch_idx==0):
+                writer.add_graph(model,imgs)
+            flg = True
+            if True:
                 for name, param in model.named_parameters():
                     if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
-                        breakpoint()
+                        #pdb.set_trace()
+                        #print("Weight is Nan in: ",name,flush=True)
+                        flg = False
+                        break
+#            if(flg):
+ #               print("OK",flush=True)
 
             clip_grad_norm_(model.parameters(), args.cp)
             optimizer.step()
+            if True:
+                for name, param in model.named_parameters():
+                    if torch.any(torch.isnan(param.grad)) or torch.any(torch.isinf(param.grad)):
+                        #pdb.set_trace()
+                        #print("Weight is Nan after optimizing in: ",name,flush=True)
+                        flg = False
+                        break
 
             local_count += imgs.data.shape[0]
             global_step += 1
             if global_step % args.print_freq == 0 or global_step == 1:
 
                 bs = imgs.size(0)
-
+                #print("z_depth_mean shape = ",log['z_depth_mean'].shape)
                 log = {
                     #'bg_what': log['bg_what'].view(-1, bg_what_dim),
                     #'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
@@ -193,8 +215,8 @@ def main():
                     'y_each_object_occurrences': (log['y_each_object_occurrences'] * log['z_pres'].
                                     view(-1, 1, 1, 1)).view(-1, N_TOTAL, N_CHANNELS, img_h, img_w),
                     'z_depth': log['z_depth'].view(-1,N_TOTAL, z_depth_dim),
-                    'z_depth_std': log['z_depth_std'].view(-1, N_TOTAL, z_depth_dim),
-                    'z_depth_mean': log['z_depth_mean'].view(-1, N_TOTAL, z_depth_dim),
+                    'z_depth_std': log['z_depth_std'].reshape(-1, N_TOTAL, z_depth_dim),
+                    'z_depth_mean': log['z_depth_mean'].reshape(-1, N_TOTAL, z_depth_dim),
                     'importance_map_full_res_norm':
                         log['importance_map_full_res_norm'].view(-1, N_TOTAL, 1, img_h, img_w),
                     'z_pres_logits': log['z_pres_logits'].permute(0, 2, 3, 1),
@@ -205,22 +227,21 @@ def main():
                 count_inter = local_count - last_count
                 print_spair_clevr(global_step, epoch, local_count, count_inter,
                                   num_train, total_loss, log_like, kl_z_what,
-                                  kl_z_where, kl_z_pres, kl_z_depth,classification_loss, time_inter)
+                                  kl_z_where, kl_z_pres, kl_z_depth,torch.tensor([0]), time_inter)
                 end_time = time.time()
 
-                """for name, param in model.named_parameters():
+                for name, param in model.named_parameters():
                     writer.add_histogram(
                         name, param.cpu().detach().numpy(), global_step)
                     if param.grad is not None:
-                        pass
-                        #writer.add_histogram(
-                         #   'grad/' + name, param.grad.cpu().detach(), global_step)
-                        # writer.add_scalar(
-                        #     'grad_std/' + name + '.grad', param.grad.cpu().detach().std().item(), global_step)
-                        # writer.add_scalar(
-                        #     'grad_mean/' + name + '.grad', param.grad.cpu().detach().mean().item(), global_step)
+                        """writer.add_histogram_raw(
+                            'grad/' + name, param.grad.cpu().detach(), global_step)"""
+                        writer.add_scalar(
+                             'grad_std/' + name + '.grad', param.grad.cpu().detach().std().item(), global_step)
+                        writer.add_scalar(
+                             'grad_mean/' + name + '.grad', param.grad.cpu().detach().mean().item(), global_step)
 
-                for key, value in log.items():
+                """for key, value in log.items():
                     if value is None:
                         continue
 
@@ -246,7 +267,7 @@ def main():
                 bbox = visualize(imgs[:num_img_summary].cpu(), log['z_pres'][:num_img_summary].cpu().detach(),
                                  log['z_where_scale'][:num_img_summary].cpu().detach(),
                                  log['z_where_shift'][:num_img_summary].cpu().detach())
-
+                print("bbox shape = ",bbox.shape)
                 #print("bbox shape = ",bbox.shape)
                 y_each_object_occurrences = log['y_each_object_occurrences'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * N_TOTAL].cpu().detach()
                 o_each_cell = log['o_each_cell'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * N_TOTAL].cpu().detach()
@@ -273,7 +294,7 @@ def main():
 
 
                 writer.add_scalar('train/total_loss', total_loss.item(), global_step=global_step)
-                writer.add_scalar('train/classification_loss', classification_loss.item(), global_step=global_step)
+                #writer.add_scalar('train/classification_loss', classification_loss.item(), global_step=global_step)
                 writer.add_scalar('train/log_like', log_like.item(), global_step=global_step)
                 writer.add_scalar('train/What_KL', kl_z_what.item(), global_step=global_step)
                 writer.add_scalar('train/Where_KL', kl_z_where.item(), global_step=global_step)
@@ -291,6 +312,9 @@ def main():
                 # writer.add_scalar('train/Bg_Beta', kg_kl_beta.item(), global_step=global_step)
 
                 last_count = local_count
+                if(flg):
+                    print("OK")
+                print("One round!")
 
 
 if '__main__':

@@ -50,12 +50,12 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
 
 def print_spair_clevr(global_step, epoch, local_count, count_inter,
                       num_train, total_loss, log_like, z_what_kl_loss, z_where_kl_loss,
-                      z_pres_kl_loss, z_depth_kl_loss,classification_loss, time_inter):
+                      z_pres_kl_loss, z_depth_kl_loss, time_inter):
     print('Step: {:>5} Train Epoch: {:>3} [{:>4}/{:>4} '.format(global_step, epoch, local_count, num_train),
           '({:3.1f}%)]    '.format(100. * local_count / num_train),
           'total_loss: {:.4f} log_like: {:.4f} '.format(total_loss.item(), log_like.item()),
           'What KL: {:.4f} Where KL: {:.4f} '.format(z_what_kl_loss.item(), z_where_kl_loss.item()),
-          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()), 'Classification loss: {:.4f}'.format(classification_loss.item()),time_inter, count_inter)
+          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()),time_inter, count_inter)
 
 
 def save_ckpt(ckpt_dir, model, optimizer, global_step, epoch, local_count,
