@@ -1,11 +1,11 @@
 import torch
+import sys
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, kl_divergence, RelaxedBernoulli
-from utils import linear_annealing, spatial_transform, calc_kl_z_pres_bernoulli
+from utils_modified import linear_annealing, spatial_transform, calc_kl_z_pres_bernoulli
 from module import NumericalRelaxedBernoulli
 from common import *
-
 
 class ImgEncoder(nn.Module):
 
@@ -53,11 +53,20 @@ class ImgEncoder(nn.Module):
             nn.GroupNorm(8, 64)
         )
 
-        self.z_where_net = nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim) * 2, 1)
+        #self.z_where_net = nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim) * 2*N_TOTAL, 4)
 
-        self.z_pres_net = nn.Conv2d(64, z_pres_dim, 1)
+        #self.z_pres_net = nn.Conv2d(64, z_pres_dim*N_TOTAL, 4)
 
-        self.z_depth_net = nn.Conv2d(64, z_depth_dim * 2, 1)
+        #self.z_depth_net = nn.Conv2d(64, z_depth_dim * 2*N_TOTAL, 4)
+        self.z_where_net = nn.Sequential(nn.Conv2d(64, (z_where_shift_dim + z_where_scale_dim)*2, 4,2,1) \
+            ,nn.Conv2d((z_where_shift_dim + z_where_scale_dim)*2, (z_where_shift_dim + z_where_scale_dim)*2*N_TOTAL, 4,2,1))
+
+        self.z_pres_net = nn.Sequential(nn.Conv2d(64, z_pres_dim, 4,2,1) \
+            ,nn.Conv2d(z_pres_dim, z_pres_dim*N_TOTAL, 4,2,1))
+
+
+        self.z_depth_net = nn.Sequential(nn.Conv2d(64, z_depth_dim*2, 4,2,1) \
+            ,nn.Conv2d(z_depth_dim*2, z_depth_dim*2*N_TOTAL, 4,2,1))
 
         offset_y, offset_x = torch.meshgrid([torch.arange(4.), torch.arange(4.)])
 
@@ -81,15 +90,21 @@ class ImgEncoder(nn.Module):
 
         z_pres = torch.sigmoid(z_pres_y)
 
-        # (bs, dim, 4, 4)
-        z_depth_mean, z_depth_std = self.z_depth_net(cat_enc).chunk(2, 1)
+        # (bs,2*z_depth,N_OBJECTS,N_OCCURRENCES)
+        z_depth_mean, z_depth_std = self.z_depth_net(cat_enc).view(-1,N_OCCURRENCES,N_OBJECTS,2*z_depth_dim).permute(0,3,2,1).chunk(2, 1)
+        """if(torch.any(torch.isnan(z_depth_mean))):
+            print("Z_depth mean is nan")
+        if(torch.any(torch.isnan(z_depth_std))):
+            print("z_depth standard is nan")
         z_depth_std = F.softplus(z_depth_std)
+        if(torch.any(torch.isnan(z_depth_std))):
+            print("z_depth standard is nan after activation")"""
         q_z_depth = Normal(z_depth_mean, z_depth_std)
 
         z_depth = q_z_depth.rsample()
 
         # (bs, 4 + 4, 4, 4)
-        z_where_mean, z_where_std = self.z_where_net(cat_enc).chunk(2, 1)
+        z_where_mean, z_where_std = self.z_where_net(cat_enc).view(-1,N_OCCURRENCES,N_OBJECTS,2*(z_where_shift_dim + z_where_scale_dim)).permute(0,3,2,1).chunk(2, 1)
         z_where_std = F.softplus(z_where_std)
 
         q_z_where = Normal(z_where_mean, z_where_std)
@@ -97,9 +112,9 @@ class ImgEncoder(nn.Module):
         z_where = q_z_where.rsample()
         # make it global
         z_where[:, :2] = (-(scale_bias + z_where[:, :2].tanh())).exp()
-        z_where[:, 2:] = 0.5 * (self.offset + 0.5 + z_where[:, 2:].tanh()) - 1
+        z_where[:, 2:] = z_where[:,2:].sigmoid()#0.5 * (0.5 + z_where[:, 2:].tanh()) - 1
 
-        z_where = z_where.permute(0, 2, 3, 1).reshape(-1, 4)
+        z_where = z_where.reshape(-1, 4)
 
         return z_where, z_pres, z_depth, q_z_where, \
                q_z_depth, z_pres_logits, z_pres_y
@@ -109,6 +124,14 @@ class ZWhatEnc(nn.Module):
 
     def __init__(self):
         super(ZWhatEnc, self).__init__()
+
+        #gives the class information and enforces the network to produce the vectors from same class
+        self.class_vector = torch.zeros((N_TOTAL,N_OBJECTS))
+        for i in range(N_OBJECTS):
+            for j in range(i*N_OCCURRENCES,(i+1)*N_OCCURRENCES,1):
+                self.class_vector[j,i] = 1.
+
+        #self.class_vector = self.class_vector.repeat()
 
         self.enc_cnn = nn.Sequential(
             nn.Conv2d(N_CHANNELS, 16, 3, 1, 1),
@@ -139,18 +162,33 @@ class ZWhatEnc(nn.Module):
 
         self.enc_what = nn.Linear(128, z_what_dim * 2)
 
+        #self.enc_classify = nn.Linear(z_what_dim,N_OBJECTS)
+
         # self.enc_depth = nn.Linear(128, z_depth_dim * 2)
 
     def forward(self, x):
+        #print("before = ",x.shape)
         x = self.enc_cnn(x)
-
-        z_what_mean, z_what_std = self.enc_what(x.flatten(start_dim=1)).chunk(2, -1)
+        #print("after = ",x.shape)
+        temp = self.enc_what(x.flatten(start_dim=1))#.view(-1,N_TOTAL,z_what_dim*2)
+        #print("temp shape = ",temp.shape)
+        z_what_mean, z_what_std = temp.chunk(2, -1)
         z_what_std = F.softplus(z_what_std)
         q_z_what = Normal(z_what_mean, z_what_std)
 
         z_what = q_z_what.rsample()
+        #print("z_what shape = ",z_what.shape)
 
-        return z_what, q_z_what
+        #z_classification = self.enc_classify(z_what.view(-1,z_what_dim))
+        #if torch.any(torch.isnan(z_classification)):
+            #print("It is Nan!")
+            #sys.exit(-1)
+        #print("class vector shape = ",torch.stack((self.class_vector,)*(x.size(0)),dim=0).flatten(0,1).shape)
+        #print("z classify shape = ",z_classification.shape)
+        #classification_loss = F.binary_cross_entropy_with_logits(z_classification,\
+         #   torch.stack((self.class_vector,)*(int(x.size(0)/N_TOTAL)),dim=0).flatten(0,1).to(z_classification.device),reduction='none')
+
+        return z_what, q_z_what#,classification_loss
 
 
 class GlimpseDec(nn.Module):
@@ -212,7 +250,8 @@ class GlimpseDec(nn.Module):
         self.dec_alpha = nn.Conv2d(16, 1, 3, 1, 1)
 
     def forward(self, x):
-        x = self.dec(x.view(x.size(0), -1, 1, 1))
+        #torch.cuda.empty_cache()
+        x = self.dec(x.view(-1, z_what_dim, 1, 1))
 
         o = torch.sigmoid(self.dec_o(x))
         alpha = torch.sigmoid(self.dec_alpha(x))
@@ -279,7 +318,7 @@ class BgEncoder(nn.Module):
         super(BgEncoder, self).__init__()
 
         self.enc = nn.Sequential(
-            nn.Linear(img_h * img_w * 3, 256),
+            nn.Linear(img_h * img_w * N_CHANNELS, 256),
             nn.CELU(),
             nn.GroupNorm(16, 256),
             nn.Linear(256, 128),
@@ -314,8 +353,8 @@ class Spair(nn.Module):
         self.img_encoder = ImgEncoder()
         self.z_what_net = ZWhatEnc()
         self.glimpse_dec = GlimpseDec()
-        self.bg_encoder = BgEncoder()
-        self.bg_decoder = BgDecoder()
+        #self.bg_encoder = BgEncoder()
+        #self.bg_decoder = BgDecoder()
 
         self.register_buffer('prior_what_mean', torch.zeros(1))
         self.register_buffer('prior_what_std', torch.ones(1))
@@ -347,6 +386,7 @@ class Spair(nn.Module):
         return Normal(self.prior_where_mean, self.prior_where_std)
 
     def forward(self, x, global_step, tau, eps=1e-15):
+        x = x.float()#/255.0
         bs = x.size(0)
         self.prior_z_pres_prob = linear_annealing(self.prior_z_pres_prob, global_step,
                                                   self.z_pres_anneal_start_step, self.z_pres_anneal_end_step,
@@ -361,56 +401,70 @@ class Spair(nn.Module):
         # z_pres, z_depth, z_pres_logits: (bs, dim, 4, 4)
         z_where, z_pres, z_depth, q_z_where, \
         q_z_depth, z_pres_logits, z_pres_y = self.img_encoder(x, tau)
+        """if torch.any(torch.isnan(z_where)):
+            print("z_where is nan global step = ",global_step,flush=True)
+        if torch.any(torch.isnan(z_pres)):
+            print("z pres is nan global step = ",global_step,flush=True)
+        if torch.any(torch.isnan(z_depth)):
+            print(" z depth is nan global step = ",global_step,flush=True)"""
 
         # (4 * 4 * bs, 3, glimpse_size, glimpse_size)
-        x_att = spatial_transform(torch.stack(4 * 4 * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w), z_where,
-                                  (4 * 4 * bs, N_CHANNELS, glimpse_size, glimpse_size), inverse=False)
+        x_att = spatial_transform(torch.stack(N_TOTAL * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w), z_where,
+                                   (N_TOTAL * bs, N_CHANNELS, glimpse_size, glimpse_size), inverse=False)
+        #if torch.any(torch.isnan(x_att)):
+        #    print("x att is nan global step = ",global_step,flush=True)
+        # # (4 * 4 * bs, dim)
+        # z_what, q_z_what = self.z_what_net(x_att)
 
-        # (4 * 4 * bs, dim)
-        z_what, q_z_what = self.z_what_net(x_att)
+        # (bs,N_OBJECTS,dim)
+        z_what,q_z_what = self.z_what_net(x_att)
+        #print("z what shape = ",z_what.shape)
+        #print("z_pres shape = ",z_pres.shape)
+        #classification_loss = classification_loss * z_pres.view(-1, 1, 1, 1)
+       # classification_loss = torch.sum(classification) # some doubt is there!!!!!
 
-        # (4 * 4 * bs, dim, glimpse_size, glimpse_size)
+        # (bs*N_OBJECTS,N_CHANNELS,glimpse_size,glimpse_size)
+        #torch.cuda.empty_cache()
         o_att, alpha_att = self.glimpse_dec(z_what)
         alpha_att_hat = alpha_att * z_pres.view(-1, 1, 1, 1)
         y_att = alpha_att_hat * o_att
 
         # (4 * 4 * bs, 3, img_h, img_w)
-        y_each_cell = spatial_transform(y_att, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
-                                        inverse=True)
+        y_each_object_occurrences = spatial_transform(y_att, z_where.view(-1,4),(N_TOTAL* bs, N_CHANNELS, img_h, img_w),inverse=True)
 
         # (4 * 4 * bs, 1, glimpse_size, glimpse_size)
         importance_map = alpha_att_hat * 4.4 * torch.sigmoid(-z_depth).view(-1, 1, 1, 1)
         # (4 * 4 * bs, 1, img_h, img_w)
-        importance_map_full_res = spatial_transform(importance_map, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
+        importance_map_full_res = spatial_transform(importance_map, z_where.view(-1,4), (N_TOTAL* bs, N_CHANNELS, img_h, img_w),
                                                     inverse=True)
         # # (bs, 4 * 4, 1, img_h, img_w)
-        importance_map_full_res = importance_map_full_res.view(-1, 4 * 4, N_CHANNELS, img_h, img_w)
+        importance_map_full_res = importance_map_full_res.view(-1, N_TOTAL, 1, img_h, img_w)
         importance_map_full_res_norm = importance_map_full_res / \
                                        (importance_map_full_res.sum(dim=1, keepdim=True) + eps)
 
         # (bs, 4 * 4, 1, img_h, img_w)
-        alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, N_CHANNELS, img_h, img_w),
-                                      inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w).sum(dim=1)
+       # alpha_map = spatial_transform(alpha_att_hat, z_where, (4 * 4 * bs, 1, img_h, img_w),
+                                      #inverse=True).view(-1, 4 * 4, 1, img_h, img_w).sum(dim=1)
         # (bs, 1, img_h, img_w)
-        alpha_map = alpha_map + (alpha_map.clamp(eps, 1 - eps) - alpha_map).detach()
+        #alpha_map = alpha_map + (alpha_map.clamp(eps, 1 - eps) - alpha_map).detach()
 
         # (bs, 3, img_h, img_w)
-        y_nobg = (y_each_cell.view(-1, 4 * 4, N_CHANNELS, img_h, img_w) * importance_map_full_res_norm).sum(dim=1)
-        y = y_nobg # + (1 - alpha_map) * bg
+        y_nobg = (y_each_object_occurrences.view(-1, N_TOTAL, N_CHANNELS, img_h, img_w) * importance_map_full_res_norm).sum(dim=1)
+        y = y_nobg# + (1 - alpha_map) * bg
 
         # (bs, bg_what_dim)
-        #kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
+       # kl_bg_what = kl_divergence(q_bg_what, self.p_bg_what)
         #kl_bg_what = kl_bg_what.view(bs, bg_what_dim)
         # (4 * 4 * bs, z_what_dim)
         kl_z_what = kl_divergence(q_z_what, self.p_z_what) * z_pres.view(-1, 1)
         # (bs, 4 * 4, z_what_dim)
-        kl_z_what = kl_z_what.view(-1, 4 * 4, z_what_dim)
+        kl_z_what = kl_z_what.view(-1, N_TOTAL, z_what_dim)
         # (4 * 4 * bs, z_depth_dim)
-        kl_z_depth = kl_divergence(q_z_depth, self.p_z_depth) * z_pres
+        kl_z_depth = kl_divergence(q_z_depth, self.p_z_depth) * z_pres.view(-1,1,N_OBJECTS,N_OCCURRENCES)
         # (bs, 4 * 4, z_depth_dim)
-        kl_z_depth = kl_z_depth.view(-1, 4 * 4, z_depth_dim)
+        kl_z_depth = kl_z_depth.view(-1, N_TOTAL, z_depth_dim)
         # (bs, dim, 4, 4)
-        kl_z_where = kl_divergence(q_z_where, self.p_z_where) * z_pres
+        kl_z_where = kl_divergence(q_z_where, self.p_z_where) * z_pres.view(-1,1,N_OBJECTS,N_OCCURRENCES)
         kl_z_pres = calc_kl_z_pres_bernoulli(z_pres_logits, self.prior_z_pres_prob)
         if DEBUG:
             if torch.any(torch.isnan(kl_z_pres)):
@@ -419,10 +473,10 @@ class Spair(nn.Module):
         log_like = p_x_given_z.log_prob((x.float()/255.0).expand_as(y).flatten(start_dim=1))
 
         self.log = {
-           # 'bg_what': bg_what,
-           # 'bg_what_std': q_bg_what.stddev,
-           # 'bg_what_mean': q_bg_what.mean,
-           # 'bg': bg,
+            #'bg_what': bg_what,
+            #'bg_what_std': q_bg_what.stddev,
+            #'bg_what_mean': q_bg_what.mean,
+            #'bg': bg,
             'z_what': z_what,
             'z_where': z_where,
             'z_pres': z_pres,
@@ -437,7 +491,7 @@ class Spair(nn.Module):
             'o_att': o_att,
             'alpha_att_hat': alpha_att_hat,
             'alpha_att': alpha_att,
-            'y_each_cell': y_each_cell,
+            'y_each_object_occurrences': y_each_object_occurrences,
             'z_depth': z_depth,
             'z_depth_std': q_z_depth.stddev,
             'z_depth_mean': q_z_depth.mean,
@@ -450,5 +504,5 @@ class Spair(nn.Module):
                kl_z_where.flatten(start_dim=1).sum(dim=1), \
                kl_z_pres.flatten(start_dim=1).sum(dim=1), \
                kl_z_depth.flatten(start_dim=1).sum(dim=1), \
-	       self.log
-               #kl_bg_what.flatten(start_dim=1).sum(dim=1), self.log
+               self.log
+

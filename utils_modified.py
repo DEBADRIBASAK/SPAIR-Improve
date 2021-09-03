@@ -19,13 +19,6 @@ gbox[1, :, :2] = 1
 gbox[1, :, -2:] = 1
 gbox = gbox.view(1, 3, 21, 21)
 
-wbox = torch.zeros(1, 21, 21)
-wbox[0, :2, :] = 1
-wbox[0, -2:, :] = 1
-wbox[0, :, :2] = 1
-wbox[0, :, -2:] = 1
-wbox = wbox.view(1, 1, 21, 21)
-
 
 def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     """
@@ -35,7 +28,7 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
         z_where_shift: (bs, 4, 4, 2)
     """
     bs = z_pres.size(0)
-    num_obj = 4 * 4
+    num_obj = N_TOTAL
     z_pres = z_pres.view(-1, 1, 1, 1)
     # z_scale = z_where[:, :, :2].view(-1, 2)
     # z_shift = z_where[:, :, 2:].view(-1, 2)
@@ -50,12 +43,12 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
 
 def print_spair_clevr(global_step, epoch, local_count, count_inter,
                       num_train, total_loss, log_like, z_what_kl_loss, z_where_kl_loss,
-                      z_pres_kl_loss, z_depth_kl_loss, time_inter):
+                      z_pres_kl_loss, z_depth_kl_loss,classification_loss, time_inter):
     print('Step: {:>5} Train Epoch: {:>3} [{:>4}/{:>4} '.format(global_step, epoch, local_count, num_train),
           '({:3.1f}%)]    '.format(100. * local_count / num_train),
           'total_loss: {:.4f} log_like: {:.4f} '.format(total_loss.item(), log_like.item()),
           'What KL: {:.4f} Where KL: {:.4f} '.format(z_what_kl_loss.item(), z_where_kl_loss.item()),
-          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()),time_inter, count_inter)
+          'Pres KL: {:.4f} Depth KL: {:.4f} classification_loss: {:.4f}'.format(z_pres_kl_loss.item(), z_depth_kl_loss.item(),classification_loss.item()))
 
 
 def save_ckpt(ckpt_dir, model, optimizer, global_step, epoch, local_count,
@@ -104,7 +97,7 @@ def load_ckpt(model, optimizer, model_file, device):
 def linear_annealing(x, step, start_step, end_step, start_value, end_value):
     if start_step < step < end_step:
         slope = (end_value - start_value) / (end_step - start_step)
-        x = torch.tensor(start_value + slope * (step - start_step), device=x.device)
+        x = torch.tensor(x.item() + slope * (step - start_step), device=x.device)
     elif step > end_step:
         x = torch.tensor(end_value, device=x.device)
 
@@ -160,3 +153,4 @@ def calc_count_more_num(z_pres, target):
     more_num = (out > target.float()).float().sum()
 
     return more_num.item()
+
