@@ -13,7 +13,8 @@ import torchvision.transforms as transforms
 from torchvision.utils import make_grid
 from torch import nn
 from torchvision import datasets
-#from create_atari.data_atari import ATARI
+from create_atari.data_atari import ATARI
+from create_atari.data_mnist import MNIST
 from torch.optim.lr_scheduler import LambdaLR
 #from data import MultiDSprites, CLEVR
 from utils import save_ckpt, load_ckpt, linear_annealing, visualize, \
@@ -24,19 +25,18 @@ from common import *
 # from torch.utils.tensorboard import SummaryWriter
 from tensorboardX import SummaryWriter
 
-from spair_alternate import Spair
-
+from spair import Spair
 
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='SPAIR')
-    parser.add_argument('--data-dir', default='./', metavar='DIR',
+    parser.add_argument('--data_dir', default='./', metavar='DIR',
                         help='train.pt file')
     parser.add_argument('--nocuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('-j', '--workers', default=12, type=int, metavar='N',
                         help='number of data loading workers (default: 12)')
-    parser.add_argument('--epochs', default=400, type=int, metavar='N',
+    parser.add_argument('--epochs', default=100, type=int, metavar='N',
                         help='number of total epochs to run (default: 400)')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
@@ -50,9 +50,9 @@ def main():
                         metavar='W', help='weight decay (default: 1e-4)')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
-    parser.add_argument('--print-freq', '-p', default=100, type=int,
+    parser.add_argument('--print_freq', '-p', default=100, type=int,
                         metavar='N', help='print batch frequency (default: 100)')
-    parser.add_argument('--save-epoch-freq', '-s', default=20, type=int,
+    parser.add_argument('--save_epoch_freq', '-s', default=20, type=int,
                         metavar='N', help='save epoch frequency (default: 20)')
     parser.add_argument('--last-ckpt', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none)')
@@ -60,9 +60,9 @@ def main():
                         help='decay rate of learning rate (default: 0.8)')
     parser.add_argument('--lr-epoch-per-decay', default=1000, type=int,
                         help='epoch of per decay of learning rate (default: 1000)')
-    parser.add_argument('--ckpt-dir', default='./model/', metavar='DIR',
+    parser.add_argument('--ckpt_dir', default='./model/', metavar='DIR',
                         help='path to save checkpoints')
-    parser.add_argument('--summary-dir', default='./summary', metavar='DIR',
+    parser.add_argument('--summary_dir', default='./summary', metavar='DIR',
                         help='path to save summary')
     parser.add_argument('--tau-end', default=0.5, type=float, metavar='T',
                         help='initial temperature for gumbel')
@@ -72,8 +72,7 @@ def main():
                         help='Fixed random seed.')
     parser.add_argument('--sigma', default=0.3, type=float, metavar='S',
                         help='Sigma for log likelihood.')
-    parser.add_argument('--dataset_path', default='./training1.pt',type=str,help='path to the stored dataset')
-
+    parser.add_argument('--dataset_path',default='./training1.pt',type=str,help='path to the stored dataset')
 
     args = parser.parse_args()
 
@@ -90,7 +89,7 @@ def main():
         "cuda" if not args.nocuda and torch.cuda.is_available() else "cpu")
     # torch.manual_seed(args.seed)
 
-    train_data = torch.load(args.dataset_path)
+    train_data = torch.load(args.dataset_path) #MNIST(root=args.data_dir, phase_train=True) # CLEVR
  
     train_loader = DataLoader(
         train_data, batch_size=args.batch_size, shuffle=True)
@@ -99,14 +98,14 @@ def main():
 
     model = Spair(sigma=args.sigma)
     model.to(device)
-    if device.type == 'cuda' and torch.cuda.device_count() > 1:
+    if device.type == 'cuda' and torch.cuda.device_count() >= 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         model = nn.DataParallel(model)
     model.train()
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr)
 
-    # optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     if args.last_ckpt:
         global_step, args.start_epoch = \
@@ -127,9 +126,9 @@ def main():
             if epoch % args.save_epoch_freq == 0:
                 save_ckpt(args.ckpt_dir, model, optimizer, global_step, epoch,
                           local_count, args.batch_size, num_train)
-        for batch_idx, sample in enumerate(train_loader):
 
-            imgs = sample[0].squeeze().view(-1, N_CHANNELS, 128, 128).to(device)
+        for batch_idx, sample in enumerate(train_loader):
+            imgs = sample[0].squeeze().view(-1, 1, 128, 128).to(device)
             target_count = sample[1].squeeze()
 
             recon_x, log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth, log = \
@@ -137,9 +136,9 @@ def main():
 
             log_like, kl_z_what, kl_z_where, kl_z_pres, kl_z_depth = \
                 log_like.mean(), kl_z_what.mean(), kl_z_where.mean(), \
-                kl_z_pres.mean(), kl_z_depth.mean()#, kl_bg_what.mean()
+                kl_z_pres.mean(), kl_z_depth.mean()
 
-            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth)# - kl_bg_what)
+            total_loss = - (log_like - kl_z_what - kl_z_where - kl_z_pres - kl_z_depth)
 
             optimizer.zero_grad()
             total_loss.backward()
@@ -159,10 +158,10 @@ def main():
                 bs = imgs.size(0)
 
                 log = {
-#                    'bg_what': log['bg_what'].view(-1, bg_what_dim),
-#                    'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
-#                    'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
-#                    'bg': log['bg'].view(-1, 3, img_h, img_w),
+                    #'bg_what': log['bg_what'].view(-1, bg_what_dim),
+                    #'bg_what_std': log['bg_what_std'].view(-1, bg_what_dim),
+                    #'bg_what_mean': log['bg_what_mean'].view(-1, bg_what_dim),
+                    #'bg': log['bg'].view(-1, 3, img_h, img_w),
                     'z_what': log['z_what'].view(-1, 4 * 4, z_what_dim),
                     'z_where_scale':
                         log['z_where'].view(-1, 4 * 4, z_where_scale_dim + z_where_shift_dim)[:, :, :z_where_scale_dim],
@@ -180,24 +179,24 @@ def main():
                         log['z_where_std'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
                     'z_where_shift_mean':
                         log['z_where_mean'].permute(0, 2, 3, 1)[:, :, z_where_scale_dim:],
-                    #'glimpse': log['x_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
+                    'glimpse': log['x_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
                     'glimpse_recon': log['y_att'].view(-1, 4 * 4, N_CHANNELS, glimpse_size, glimpse_size),
                     'prior_z_pres_prob': log['prior_z_pres_prob'].unsqueeze(0),
-                    'o_each_cell': spatial_transform(log['o_att'], log['z_where'], (4 * 4 * bs, N_CHANNELS, img_h, img_w),
-                                                     inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
+                    'o_each_cell': spatial_transform(log['o_att'], log['z_where'], (4 * 4 * bs, 3, img_h, img_w),
+                                                     inverse=True).view(-1, 4 * 4, 3, img_h, img_w),
                     'alpha_hat_each_cell': spatial_transform(log['alpha_att_hat'], log['z_where'],
-                                                             (4 * 4 * bs, N_CHANNELS, img_h, img_w),
-                                                             inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
+                                                             (4 * 4 * bs, 1, img_h, img_w),
+                                                             inverse=True).view(-1, 4 * 4, 1, img_h, img_w),
                     'alpha_each_cell': spatial_transform(log['alpha_att'], log['z_where'],
-                                                         (4 * 4 * bs, N_CHANNELS, img_h, img_w),
-                                                         inverse=True).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
+                                                         (4 * 4 * bs, 1, img_h, img_w),
+                                                         inverse=True).view(-1, 4 * 4, 1, img_h, img_w),
                     'y_each_cell': (log['y_each_cell'] * log['z_pres'].
                                     view(-1, 1, 1, 1)).view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
                     'z_depth': log['z_depth'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_std': log['z_depth_std'].view(-1, 4 * 4, z_depth_dim),
                     'z_depth_mean': log['z_depth_mean'].view(-1, 4 * 4, z_depth_dim),
                     'importance_map_full_res_norm':
-                        log['importance_map_full_res_norm'].view(-1, 4 * 4, N_CHANNELS, img_h, img_w),
+                        log['importance_map_full_res_norm'].view(-1, 4 * 4, 1, img_h, img_w),
                     'z_pres_logits': log['z_pres_logits'].permute(0, 2, 3, 1),
                     'z_pres_y': log['z_pres_y'].permute(0, 2, 3, 1),
                 }
@@ -213,9 +212,8 @@ def main():
                     writer.add_histogram(
                         name, param.cpu().detach().numpy(), global_step)
                     if param.grad is not None:
-                        pass
-                        #writer.add_histogram(
-                        #    'grad/' + name, param.grad.cpu().detach(), global_step)
+                        writer.add_histogram(
+                            'grad/' + name, param.grad.cpu().detach(), global_step)
                         # writer.add_scalar(
                         #     'grad_std/' + name + '.grad', param.grad.cpu().detach().std().item(), global_step)
                         # writer.add_scalar(
@@ -240,9 +238,9 @@ def main():
                                        5, normalize=False, pad_value=1)
                 writer.add_image('train/2-reconstruction_overall', grid_image, global_step)
 
-                #grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
-                 #                      5, normalize=False, pad_value=1)
-                #writer.add_image('train/3-background', grid_image, global_step)
+                # grid_image = make_grid(log['bg'].cpu().detach()[:10].view(-1, N_CHANNELS, img_h, img_w),
+                #                        5, normalize=False, pad_value=1)
+                # writer.add_image('train/3-background', grid_image, global_step)
 
                 bbox = visualize(imgs[:num_img_summary].cpu(), log['z_pres'][:num_img_summary].cpu().detach(),
                                  log['z_where_scale'][:num_img_summary].cpu().detach(),
@@ -253,7 +251,7 @@ def main():
                 alpha_each_cell = log['alpha_hat_each_cell'].view(-1, 1, img_h, img_w)[
                                   :num_img_summary * 16].cpu().detach()
                 importance_each_cell = \
-                    log['importance_map_full_res_norm'].view(-1, N_CHANNELS, img_h, img_w)[:num_img_summary * 16].cpu().detach()
+                    log['importance_map_full_res_norm'].view(-1, 1, img_h, img_w)[:num_img_summary * 16].cpu().detach()
 
                 for i in range(num_img_summary):
                     grid_image = make_grid(bbox[i * 16:(i + 1) * 16], 4, normalize=True, pad_value=1)
@@ -279,16 +277,18 @@ def main():
                 writer.add_scalar('train/Pres_KL', kl_z_pres.item(), global_step=global_step)
                 writer.add_scalar('train/Depth_KL', kl_z_depth.item(), global_step=global_step)
                 writer.add_scalar('train/tau', tau, global_step=global_step)
-                writer.add_scalar('train/count_acc', calc_count_acc(log['z_pres'].cpu().detach(), target_count),
+                acc = calc_count_acc(log['z_pres'].cpu().detach(), target_count)
+                #writer.add_scalar('train/count', out ,global_step=global_step)
+                #writer.add_scalar('train/target_count',target_count,global_step=global_step)
+                writer.add_scalar('train/count_acc', acc,
                                   global_step=global_step)
                 writer.add_scalar('train/count_more', calc_count_more_num(log['z_pres'].cpu().detach(), target_count),
                                   global_step=global_step)
- #               writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
+                #writer.add_scalar('train/Bg_KL', kl_bg_what.item(), global_step=global_step)
                 # writer.add_scalar('train/Bg_Beta', kg_kl_beta.item(), global_step=global_step)
 
                 last_count = local_count
 
 
-if __name__ == '__main__':
+if '__main__':
     main()
-

@@ -1,3 +1,5 @@
+
+
 import torch
 import torch.nn.functional as F
 from torch.distributions import RelaxedBernoulli, utils
@@ -5,29 +7,119 @@ from module import NumericalRelaxedBernoulli
 from common import *
 import os
 
-rbox = torch.zeros(3, 21, 21)
-rbox[0, :2, :] = 1
-rbox[0, -2:, :] = 1
-rbox[0, :, :2] = 1
-rbox[0, :, -2:] = 1
-rbox = rbox.view(1, 3, 21, 21)
+box1 = torch.zeros(3, 21, 21)
+box1[0, :2, :] = 1
+box1[0, -2:, :] = 1
+box1[0, :, :2] = 1
+box1[0, :, -2:] = 1
+box1 = box1.view(1, 3, 21, 21)
 
-gbox = torch.zeros(3, 21, 21)
-gbox[1, :2, :] = 1
-gbox[1, -2:, :] = 1
-gbox[1, :, :2] = 1
-gbox[1, :, -2:] = 1
-gbox = gbox.view(1, 3, 21, 21)
-
-wbox = torch.zeros(1, 32,32)
-wbox[:, :2, :] = 1
-wbox[:, -2:, :] = 1
-wbox[:, :, :2] = 1
-wbox[:, :, -2:] = 1
-wbox = wbox.view(1, 1,32,32)
+box2 = torch.zeros(3, 21, 21)
+box2[1, :2, :] = 1
+box2[1, -2:, :] = 1
+box2[1, :, :2] = 1
+box2[1, :, -2:] = 1
+box2 = box2.view(1, 3, 21, 21)
 
 
-def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
+box3 = torch.zeros(3, 21, 21)
+box3[2, :2, :] = 1
+box3[2, -2:, :] = 1
+box3[2, :, :2] = 1
+box3[2, :, -2:] = 1
+box3 = box3.view(1, 3, 21, 21)
+
+box4 = torch.zeros(3, 21, 21)
+box4[[0,1], :2, :] = 1
+box4[[0,1], -2:, :] = 1
+box4[[0,1], :, :2] = 1
+box4[[0,1], :, -2:] = 1
+box4 = box4.view(1, 3, 21, 21)
+
+box5 = torch.zeros(3, 21, 21)
+box5[[0,2], :2, :] = 1
+box5[[0,2], -2:, :] = 1
+box5[[0,2], :, :2] = 1
+box5[[0,2], :, -2:] = 1
+box5 = box5.view(1, 3, 21, 21)
+
+box6 = torch.zeros(3, 21, 21)
+box6[[1,2], :2, :] = 1
+box6[[1,2], -2:, :] = 1
+box6[[1,2], :, :2] = 1
+box6[[1,2], :, -2:] = 1
+box6 = box6.view(1, 3, 21, 21)
+
+box7 = torch.zeros(3, 21, 21)
+box7[:, :2, :] = 1
+box7[:, -2:, :] = 1
+box7[:, :, :2] = 1
+box7[:, :, -2:] = 1
+box7 = box7.view(1, 3, 21, 21)
+
+box8 = torch.zeros(3, 21, 21)
+box8[0, :2, :] = 1
+box8[0, -2:, :] = 1
+box8[0, :, :2] = 1
+box8[0, :, -2:] = 1
+box8 = box8.view(1, 3, 21, 21)
+
+box9 = torch.zeros(3, 21, 21)
+box9[0, :2, :] = 0.5
+box9[0, -2:, :] = 0.5
+box9[0, :, :2] = 0.5
+box9[0, :, -2:] = 0.5
+box9 = box9.view(1, 3, 21, 21)
+
+box10 = torch.zeros(3, 21, 21)
+box10[1, :2, :] = 0.5
+box10[1, -2:, :] = 0.5
+box10[1, :, :2] = 0.5
+box10[1, :, -2:] = 0.5
+box10 = box10.view(1, 3, 21, 21)
+
+
+boxes = torch.zeros(N_TOTAL,3,21,21)
+N_OBJECTS1 = 16
+boxes[:N_OBJECTS1,:,:,:] = box1
+boxes[N_OBJECTS1:2*N_OBJECTS1,:,:,:] = box2
+boxes[2*N_OBJECTS1:3*N_OBJECTS1,:,:,:] = box3
+boxes[3*N_OBJECTS1:4*N_OBJECTS1,:,:,:] = box4
+boxes[4*N_OBJECTS1:5*N_OBJECTS1,:,:,:] = box5
+boxes[5*N_OBJECTS1:6*N_OBJECTS1,:,:,:] = box6
+boxes[6*N_OBJECTS1:7*N_OBJECTS1,:,:,:] = box7
+boxes[7*N_OBJECTS1:8*N_OBJECTS1,:,:,:] = box8
+boxes[8*N_OBJECTS1:9*N_OBJECTS1,:,:,:] = box9
+boxes[9*N_OBJECTS1:10*N_OBJECTS1,:,:,:] = box10
+
+boxes1 = torch.cat((box1,box2,box3,box4,box5,box6,box7,box8,box9,box10,),dim=0)
+
+
+def visualize(x, z_pres, z_where_scale, z_where_shift, boxes=boxes):
+    """
+        x: (bs, 3, img_h, img_w)
+        z_pres: (bs, 4, 4, 1)
+        z_where_scale: (bs, 4, 4, 2)
+        z_where_shift: (bs, 4, 4, 2)
+    """
+    #bs = z_pres.size(0)
+    num_obj = N_TOTAL
+    z_pres = z_pres.view(-1, 1, 1, 1) # (bs*N_TOTAL)
+    bs = z_pres.size(0)//boxes.shape[0]
+    # z_scale = z_where[:, :, :2].view(-1, 2)
+    # z_shift = z_where[:, :, 2:].view(-1, 2)
+    z_scale = z_where_scale.view(-1, 2)
+    z_shift = z_where_shift.view(-1, 2)
+    bbox = spatial_transform(((z_pres.view(-1,1,1,1)>=0.5).float() * torch.cat(bs*(boxes,),dim=0)).view(-1,3,21,21),
+                             torch.cat((z_scale, z_shift), dim=1),
+                             torch.Size([bs * num_obj, 3, img_h, img_w]),
+                             inverse=True)
+    bbox = bbox.view(bs,N_OBJECTS,-1,3,img_h,img_w).sum(2)
+    #bbox = 1.0-bbox
+    bbox = (bbox + torch.stack((x,)*N_OBJECTS,dim=1).view(-1, N_CHANNELS, img_h, img_w)).clamp(0.,1.)*255.0
+    return bbox
+
+def visualize1(x, z_pres, z_where_scale, z_where_shift,pred, boxes=boxes):
     """
         x: (bs, 3, img_h, img_w)
         z_pres: (bs, 4, 4, 1)
@@ -36,27 +128,29 @@ def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     """
     bs = z_pres.size(0)
     num_obj = 4*4
-    z_pres = z_pres.view(-1, 1, 1, 1)
+    z_pres = z_pres.view(-1, 1, 1, 1) # (bs*N_TOTAL)
     # z_scale = z_where[:, :, :2].view(-1, 2)
     # z_shift = z_where[:, :, 2:].view(-1, 2)
     z_scale = z_where_scale.view(-1, 2)
     z_shift = z_where_shift.view(-1, 2)
-    bbox = spatial_transform(z_pres * wbox,
+    bbox = spatial_transform(((z_pres.view(-1,1,1,1)>=0.5).float() * boxes1[pred.view(-1)]).view(-1,3,21,21),
                              torch.cat((z_scale, z_shift), dim=1),
-                             torch.Size([bs * num_obj, N_CHANNELS, img_h, img_w]),
+                             torch.Size([bs * num_obj, 3, img_h, img_w]),
                              inverse=True)
-    bbox = 1.0-bbox
-    bbox = (bbox * torch.stack(num_obj * (x,), dim=1).view(-1, N_CHANNELS, img_h, img_w))*255.0
+    #bbox = bbox.view(bs,N_OBJECTS,-1,3,img_h,img_w).sum(2)
+    #bbox = 1.0-bbox
+    bbox = (bbox + torch.stack((x,)*num_obj,dim=1).view(-1, N_CHANNELS, img_h, img_w)).clamp(0.,1.)*255.0
     return bbox
+
 
 def print_spair_clevr(global_step, epoch, local_count, count_inter,
                       num_train, total_loss, log_like, z_what_kl_loss, z_where_kl_loss,
-                      z_pres_kl_loss, z_depth_kl_loss,kl_bg_what,classification_loss):
+                      z_pres_kl_loss, z_depth_kl_loss,classification_loss):
     print('Step: {:>5} Train Epoch: {:>3} [{:>4}/{:>4} '.format(global_step, epoch, local_count, num_train),
           '({:3.1f}%)]    '.format(100. * local_count / num_train),
           'total_loss: {:.4f} log_like: {:.4f} '.format(total_loss.item(), log_like.item()),
           'What KL: {:.4f} Where KL: {:.4f} '.format(z_what_kl_loss.item(), z_where_kl_loss.item()),
-          'Pres KL: {:.4f} Depth KL: {:.4f} BG KL: {:.4f} classification_loss: {:.4f}'.format(z_pres_kl_loss.item(), z_depth_kl_loss.item(),kl_bg_what.item(),classification_loss.item()))
+          'Pres KL: {:.4f} Depth KL: {:.4f} classification_loss: {:.4f}'.format(z_pres_kl_loss.item(), z_depth_kl_loss.item(),classification_loss.item()))
 
 
 def save_ckpt(ckpt_dir, model, optimizer, global_step, epoch, local_count,
@@ -125,6 +219,8 @@ def spatial_transform(image, z_where, out_dims, inverse=False):
          [0, s]]               [0, 1/s]]
     """
     # 1. construct 2x3 affine matrix for each datapoint in the minibatch
+    #print("imgs shape = ",image.shape)
+    #print("z where shape = ",z_where.shape)
     theta = torch.zeros(2, 3).repeat(image.shape[0], 1, 1).to(image.device)
     # set scaling
     theta[:, 0, 0] = z_where[:, 0] if not inverse else 1 / (z_where[:, 0] + 1e-9)
@@ -140,27 +236,8 @@ def spatial_transform(image, z_where, out_dims, inverse=False):
 
 def calc_kl_z_pres_bernoulli(z_pres_logits, prior_pres_prob, eps=1e-15):
     z_pres_probs = torch.sigmoid(z_pres_logits).view(-1, 4 * 4)
-    if(torch.any((z_pres_probs + eps)<0)):
-        print("z_pres_probs + eps is <0")
-        print(z_pres_probs + eps)
-    # else:
-    #     print("No")
-    if(torch.any((prior_pres_prob + eps)<0)):
-        print("prior_pres_prob + eps is <0")
-        print(prior_pres_prob + eps)
-    # else:
-    #     print("No")
-    if(torch.any((1 - z_pres_probs + eps)<0)):
-        print("1 - z_pres_probs + eps is <0")
-        print(1 - z_pres_probs + eps)
-    # else:
-    #     print("No")
-    if(torch.any((1 - prior_pres_prob + eps)<0)):
-        print("1 - prior_pres_prob + eps <0")
-        print(1 - prior_pres_prob + eps)
-    # else:
-    #     print("No")
-    kl = z_pres_probs * (torch.log(z_pres_probs + eps) - torch.log(prior_pres_prob + eps)) + (1 - z_pres_probs) * (torch.log(1 - z_pres_probs + eps) - torch.log(1 - prior_pres_prob + eps))
+    kl = z_pres_probs * (torch.log(z_pres_probs + eps) - torch.log(prior_pres_prob + eps)) + \
+         (1 - z_pres_probs) * (torch.log(1 - z_pres_probs + eps) - torch.log(1 - prior_pres_prob + eps))
 
     return kl
 

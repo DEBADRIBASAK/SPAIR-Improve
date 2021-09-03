@@ -19,13 +19,6 @@ gbox[1, :, :2] = 1
 gbox[1, :, -2:] = 1
 gbox = gbox.view(1, 3, 21, 21)
 
-wbox = torch.zeros(1, 21, 21)
-wbox[0, :2, :] = 1
-wbox[0, -2:, :] = 1
-wbox[0, :, :2] = 1
-wbox[0, :, -2:] = 1
-wbox = wbox.view(1, 1, 21, 21)
-
 
 def visualize(x, z_pres, z_where_scale, z_where_shift, rbox=rbox, gbox=gbox):
     """
@@ -55,7 +48,7 @@ def print_spair_clevr(global_step, epoch, local_count, count_inter,
           '({:3.1f}%)]    '.format(100. * local_count / num_train),
           'total_loss: {:.4f} log_like: {:.4f} '.format(total_loss.item(), log_like.item()),
           'What KL: {:.4f} Where KL: {:.4f} '.format(z_what_kl_loss.item(), z_where_kl_loss.item()),
-          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()),time_inter, count_inter)
+          'Pres KL: {:.4f} Depth KL: {:.4f} '.format(z_pres_kl_loss.item(), z_depth_kl_loss.item()))
 
 
 def save_ckpt(ckpt_dir, model, optimizer, global_step, epoch, local_count,
